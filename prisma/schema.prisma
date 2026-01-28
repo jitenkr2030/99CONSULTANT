@@ -14,19 +14,277 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String   @id @default(cuid())
+  email             String   @unique
+  password          String?
+  name              String?
+  phone             String?
+  avatar            String?
+  role              UserRole @default(CLIENT)
+  emailVerified     DateTime?
+  phoneVerified     Boolean  @default(false)
+  kycVerified       Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Client relationships
+  clientBookings    Booking[]  @relation("ClientBookings")
+  clientReviews     Review[]   @relation("ClientReviews")
+  clientSessions    Session[]  @relation("ClientSessions")
+  
+  // Consultant relationships
+  consultantProfile ConsultantProfile? @relation("ConsultantProfile")
+  consultantBookings Booking[]  @relation("ConsultantBookings")
+  consultantReviews Review[]   @relation("ConsultantReviews")
+  consultantSessions Session[]  @relation("ConsultantSessions")
+  earnings          Earning[]  @relation("ConsultantEarnings")
+  
+  // Admin relationships
+  adminActions      AdminAction[] @relation("AdminActions")
+  
+  @@map("users")
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
+model ConsultantProfile {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation("ConsultantProfile", fields: [userId], references: [id], onDelete: Cascade)
+  
+  bio                 String?
+  experience          String?  // Years of experience
+  qualifications      String?  // JSON array of qualifications
+  skills              String?  // JSON array of skills
+  category            CategoryEnum
+  subcategory         String?
+  firstSessionPrice   Int      @default(99) // ₹99 for first session
+  regularSessionPrice Int      @default(299) // Regular price
+  availability        String?  // JSON object with availability schedule
+  isOnline            Boolean  @default(false)
+  isApproved          Boolean  @default(false)
+  approvalDate        DateTime?
+  rejectionReason     String?
+  
+  // Profile completion
+  profileCompleted    Boolean  @default(false)
+  bankDetails         String?  // Encrypted bank details for payouts
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  bookings            Booking[]
+  sessions            Session[]
+  earnings            Earning[]
+  
+  @@map("consultant_profiles")
+}
+
+
+
+model Subcategory {
+  id          String   @id @default(cuid())
+  name        String
+  category    CategoryEnum
+  description String?
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([category, name])
+  @@map("subcategories")
+}
+
+model Booking {
+  id              String       @id @default(cuid())
+  bookingNumber   String       @unique
+  clientId        String
+  client          User         @relation("ClientBookings", fields: [clientId], references: [id], onDelete: Cascade)
+  consultantId    String
+  consultant      User         @relation("ConsultantBookings", fields: [consultantId], references: [id], onDelete: Cascade)
+  consultantProfile ConsultantProfile @relation(fields: [consultantId], references: [userId], onDelete: Cascade)
+  
+  type            BookingType  @default(SCHEDULED)
+  status          BookingStatus @default(PENDING)
+  scheduledFor    DateTime?
+  duration        Int          @default(30) // minutes
+  price           Int
+  isFirstSession  Boolean      @default(false)
+  
+  sessionNotes    String?      // Client's notes for the session
+  consultantNotes String?      // Consultant's internal notes
+  
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentId       String?
+  
+  sessionId       String?      // Linked session when created
+  session         Session?
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  
+  reviews         Review[]
+  
+  @@map("bookings")
+}
+
+model Session {
+  id            String      @id @default(cuid())
+  sessionId     String      @unique // INR99 Academy session ID
+  bookingId     String?    @unique
+  booking       Booking?    @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  
+  clientId      String
+  client        User        @relation("ClientSessions", fields: [clientId], references: [id], onDelete: Cascade)
+  consultantId  String
+  consultant    User        @relation("ConsultantSessions", fields: [consultantId], references: [id], onDelete: Cascade)
+  consultantProfile ConsultantProfile @relation(fields: [consultantId], references: [userId], onDelete: Cascade)
+  
+  status        SessionStatus @default(ACTIVE)
+  startedAt     DateTime?
+  endedAt       DateTime?
+  duration      Int?        // Actual duration in minutes
+  
+  sessionUrl    String?     // INR99 Academy session URL
+  recordingUrl  String?     // Optional recording
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  reviews       Review[]
+  
+  @@map("sessions")
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  bookingId    String
+  booking      Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  sessionId    String?
+  session      Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  
+  clientId     String
+  client       User     @relation("ClientReviews", fields: [clientId], references: [id], onDelete: Cascade)
+  consultantId String
+  consultant   User     @relation("ConsultantReviews", fields: [consultantId], references: [id], onDelete: Cascade)
+  
+  rating       Int      // 1-5 stars
+  review       String?
+  isPublic     Boolean  @default(true)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@unique([bookingId])
+  @@map("reviews")
+}
+
+model Earning {
+  id            String   @id @default(cuid())
+  consultantId  String
+  consultant    User     @relation("ConsultantEarnings", fields: [consultantId], references: [id], onDelete: Cascade)
+  consultantProfile ConsultantProfile @relation(fields: [consultantId], references: [userId], onDelete: Cascade)
+  
+  sessionId     String?
+  bookingId     String?
+  
+  amount        Int      // Consultant's earnings after commission
+  commission    Int      // Platform commission
+  totalAmount   Int      // Total session price
+  
+  status        EarningStatus @default(PENDING)
+  payoutId      String?
+  paidAt        DateTime?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@map("earnings")
+}
+
+model AdminAction {
+  id          String   @id @default(cuid())
+  adminId     String
+  admin       User     @relation("AdminActions", fields: [adminId], references: [id], onDelete: Cascade)
+  
+  action      AdminActionType
+  targetId    String?  // ID of the target (consultant, booking, etc.)
+  targetType  String?  // Type of target
+  reason      String?
+  metadata    String?  // JSON metadata
+  
+  createdAt   DateTime @default(now())
+  
+  @@map("admin_actions")
+}
+
+model SystemConfig {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  
+  @@map("system_config")
+}
+
+enum CategoryEnum {
+  CAREER
+  EDUCATION
+  FINANCE
+  BUSINESS
+  WELLNESS
+  TECHNOLOGY
+  LEGAL
+  MARKETING
+  OTHER
+}
+
+enum UserRole {
+  CLIENT
+  CONSULTANT
+  ADMIN
+}
+
+enum BookingType {
+  INSTANT    // Available now
+  SCHEDULED  // Book for later
+}
+
+enum BookingStatus {
+  PENDING    // Awaiting consultant approval
+  CONFIRMED  // Approved by consultant
+  CANCELLED  // Cancelled by either party
+  COMPLETED  // Session completed
+  NO_SHOW    // Client didn't show up
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum SessionStatus {
+  SCHEDULED  // Scheduled but not started
+  ACTIVE     // Currently in progress
+  COMPLETED  // Successfully ended
+  CANCELLED  // Cancelled before start
+  FAILED     // Technical issues
+}
+
+enum EarningStatus {
+  PENDING    // Awaiting payout
+  PAID       // Paid to consultant
+  HELD       // Held for review/dispute
+}
+
+enum AdminActionType {
+  APPROVE_CONSULTANT
+  REJECT_CONSULTANT
+  SUSPEND_CONSULTANT
+  HANDLE_DISPUTE
+  UPDATE_PRICING
+  SYSTEM_ANNOUNCEMENT
 }
